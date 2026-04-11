@@ -3,14 +3,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+def _get_secret(key: str, default: str = "") -> str:
+    """Read from env vars first, then Streamlit secrets (for Streamlit Cloud)."""
+    val = os.getenv(key, "")
+    if val:
+        return val
+    try:
+        import streamlit as st
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+
+ANTHROPIC_API_KEY = _get_secret("ANTHROPIC_API_KEY")
+OPENAI_API_KEY = _get_secret("OPENAI_API_KEY")
 
 # Model for PageIndex tree generation (litellm format — prefix with provider)
-PAGEINDEX_MODEL = os.getenv("PAGEINDEX_MODEL", "anthropic/claude-sonnet-4-20250514")
+PAGEINDEX_MODEL = _get_secret("PAGEINDEX_MODEL", "anthropic/claude-sonnet-4-20250514")
 
 # Model for chat responses (anthropic SDK format — no prefix)
-CHAT_MODEL = os.getenv("CHAT_MODEL", "claude-sonnet-4-20250514")
+CHAT_MODEL = _get_secret("CHAT_MODEL", "claude-sonnet-4-20250514")
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
