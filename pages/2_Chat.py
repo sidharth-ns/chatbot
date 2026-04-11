@@ -260,15 +260,18 @@ pending = st.session_state.pop("pending_question", None)
 # Chat input
 prompt = pending or st.chat_input("Ask about the project documentation...")
 
-if prompt:
+if prompt and prompt.strip():
+    prompt = prompt.strip()
+
     # Show user message
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Build API messages
+    # Build API messages — filter out any with empty content
     api_messages = [
         {"role": m["role"], "content": m["content"]}
         for m in st.session_state.chat_history
+        if m.get("content", "").strip()  # Skip messages with empty content
     ] + [{"role": "user", "content": prompt}]
 
     # Start background response (survives page switches)

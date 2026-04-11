@@ -24,6 +24,10 @@ from unittest.mock import MagicMock
 
 logger = logging.getLogger(__name__)
 
+# Suppress litellm's noisy internal logging (async task cleanup warnings)
+logging.getLogger("litellm").setLevel(logging.WARNING)
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+
 # Mock PDF dependencies before importing PageIndex (we only use markdown processing)
 # WARNING: This persists for the entire process — do not install PyPDF2/pymupdf alongside this app
 sys.modules.setdefault("PyPDF2", MagicMock())
@@ -65,13 +69,31 @@ _ASYNC_TIMEOUT = 300
 SKIP_DIRS = {".git", "node_modules", "venv", ".venv", "__pycache__", ".tox", ".mypy_cache", "env", ".env"}
 
 
+def _run_async_inner(coro):
+    """Wrapper that suppresses litellm's async logging cleanup warnings."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            # Cancel remaining tasks gracefully to avoid litellm logging errors
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
+
+
 def _run_async(coro):
     """Run an async coroutine in a fresh event loop on a separate thread.
 
     This avoids nest_asyncio issues with httpx/anyio that occur when
     patching the main event loop. Times out after _ASYNC_TIMEOUT seconds.
     """
-    future = _thread_pool.submit(asyncio.run, coro)
+    future = _thread_pool.submit(_run_async_inner, coro)
     return future.result(timeout=_ASYNC_TIMEOUT)
 
 

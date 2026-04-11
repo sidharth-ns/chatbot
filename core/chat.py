@@ -87,11 +87,12 @@ and section when referencing specific information."""
     else:
         system = SYSTEM_PROMPT
 
-    # Keep last 10 messages for conversation context
+    # Keep last 10 messages for conversation context, filter out empty content
     recent_messages = messages[-10:]
     anthropic_messages = [
         {"role": m["role"], "content": m["content"]}
         for m in recent_messages
+        if m.get("content", "").strip()
     ]
 
     def _stream():
@@ -285,7 +286,17 @@ and section when referencing specific information."""
                 system = SYSTEM_PROMPT
 
             recent = messages[-10:]
-            anthropic_messages = [{"role": m["role"], "content": m["content"]} for m in recent]
+            # Filter out any messages with empty content (prevents API 400 errors)
+            anthropic_messages = [
+                {"role": m["role"], "content": m["content"]}
+                for m in recent
+                if m.get("content", "").strip()
+            ]
+
+            if not anthropic_messages:
+                with _bg_chat_lock:
+                    _bg_chat["error"] = "No valid messages to send"
+                return
 
             # Non-streaming call (background — no UI to stream to)
             response = client.messages.create(
