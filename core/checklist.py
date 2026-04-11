@@ -7,6 +7,7 @@ When on_no.command is null, searches indexed docs for help content.
 """
 
 import json
+import functools
 import os
 from typing import Optional
 
@@ -19,10 +20,15 @@ CONFIG_PATH = os.path.join(
 )
 
 
+@functools.lru_cache(maxsize=1)
 def load_config() -> dict:
-    """Load checklist configuration from JSON file."""
+    """Load checklist configuration from JSON file (cached after first read)."""
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        config = json.load(f)
+    # Validate required keys
+    if "questions" not in config or not isinstance(config["questions"], list):
+        raise ValueError("checklist_config.json must have a 'questions' list")
+    return config
 
 
 def init_state(session_state) -> None:
@@ -45,6 +51,12 @@ def get_state(session_state) -> dict:
 
 def mark_answered(session_state, question_id: str, answer: str) -> None:
     """Record a yes/no answer for a checklist question."""
+    if answer not in ("yes", "no"):
+        raise ValueError(f"Invalid answer: {answer}. Must be 'yes' or 'no'.")
+    config = load_config()
+    valid_ids = {q["id"] for q in config["questions"]}
+    if question_id not in valid_ids:
+        raise ValueError(f"Invalid question_id: {question_id}")
     init_state(session_state)
     session_state.checklist_state[question_id] = answer
 

@@ -6,6 +6,8 @@ streaming responses, and suggested question generation.
 """
 
 import json
+import logging
+import threading
 from typing import Generator, Optional
 
 import anthropic
@@ -13,29 +15,38 @@ import anthropic
 from config.settings import ANTHROPIC_API_KEY, CHAT_MODEL
 from core.retrieval import search_trees, build_context
 
+logger = logging.getLogger(__name__)
+
 SYSTEM_PROMPT = """You are OnboardBot, a friendly and patient onboarding assistant \
 that helps new team members understand a project by answering questions based on \
 the project's documentation.
 
 Rules:
-1. Answer ONLY based on the provided documentation context below. Do not make up \
-   information or assume things not in the docs.
-2. Always cite your sources — mention which file and section the information comes \
-   from. Format as: "According to **ARCHITECTURE.md** > *Deployment* section..."
-3. If the provided context does not contain enough information to answer the \
-   question, say: "I couldn't find information about this in the indexed docs. \
-   You might want to ask the team directly or check if there's additional \
-   documentation that hasn't been indexed."
-4. Be encouraging and welcoming — remember the user is new to the project.
-5. Format commands and code in proper markdown code blocks with language hints.
-6. If the question is about setup or tooling and was covered in the onboarding \
+1. PRIORITIZE the provided documentation context when answering. Always cite your \
+   sources — format as: "According to **ARCHITECTURE.md** > *Deployment* section..."
+2. If the documentation context does not contain enough information, you MAY use \
+   your general knowledge to answer. In that case, clearly indicate this by saying: \
+   "This isn't covered in the indexed docs, but based on my general knowledge..." \
+   so the user knows the answer didn't come from their project docs.
+3. Be encouraging and welcoming — remember the user is new to the project.
+4. Format commands and code in proper markdown code blocks with language hints.
+5. If the question is about setup or tooling and was covered in the onboarding \
    checklist, mention that: "This was also covered in your onboarding checklist!"
-7. Keep answers concise but thorough. Use bullet points for multi-part answers.
-8. If multiple docs cover the topic, synthesize information from all of them."""
+6. Keep answers concise but thorough. Use bullet points for multi-part answers.
+7. If multiple docs cover the topic, synthesize information from all of them."""
+
+# Fast model for lightweight tasks (question generation)
+FAST_MODEL = "claude-haiku-4-5-20251001"
+
+# Reuse a single API client across calls (thread-safe — uses httpx internally)
+_client: Optional[anthropic.Anthropic] = None
 
 
 def _get_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    return _client
 
 
 def stream_chat_response(
@@ -54,7 +65,7 @@ def stream_chat_response(
     client = _get_client()
 
     # RAG: search trees for context
-    user_query = messages[-1]["content"] if messages else ""
+    user_query = messages[-1].get("content", "") if messages else ""
     sources = []
     context = ""
 
@@ -63,17 +74,16 @@ def stream_chat_response(
         if sources:
             context = build_context(sources)
 
-    # Build system prompt with context
+    # Build system prompt with context — user content wrapped in XML tags
     if context:
         system = f"""{SYSTEM_PROMPT}
 
----
-RETRIEVED DOCUMENTATION CONTEXT:
+<retrieved_documentation>
 {context}
----
+</retrieved_documentation>
 
-Use the above context to answer the user's question. Cite the document and section \
-when referencing specific information."""
+Use the above documentation context to answer the user's question. Cite the document \
+and section when referencing specific information."""
     else:
         system = SYSTEM_PROMPT
 
@@ -85,14 +95,23 @@ when referencing specific information."""
     ]
 
     def _stream():
-        with client.messages.stream(
-            model=model,
-            max_tokens=2048,
-            system=system,
-            messages=anthropic_messages,
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
+        try:
+            with client.messages.stream(
+                model=model,
+                max_tokens=2048,
+                system=system,
+                messages=anthropic_messages,
+            ) as stream:
+                for text in stream.text_stream:
+                    yield text
+        except anthropic.AuthenticationError:
+            raise  # Propagate auth errors — can't recover
+        except anthropic.RateLimitError as e:
+            logger.warning(f"Rate limited during chat: {e}")
+            yield "\n\n⚠️ *Rate limit reached. Please wait a moment and try again.*"
+        except anthropic.APIConnectionError as e:
+            logger.error(f"API connection error: {e}")
+            yield "\n\n⚠️ *Connection error. Please check your network and try again.*"
 
     return _stream(), sources
 
@@ -111,10 +130,9 @@ def generate_starter_questions(
             "What's the contribution workflow?",
         ]
 
-    model = model or CHAT_MODEL
+    model = model or FAST_MODEL
     client = _get_client()
 
-    # Build a summary of available docs
     doc_summaries = []
     for filename, tree_data in indexed_trees.items():
         tree = tree_data.get("tree", tree_data)
@@ -133,8 +151,7 @@ and "how does X work" questions.
 Documents:
 {chr(10).join(doc_summaries)}
 
-Return ONLY a JSON array of question strings, like:
-["Question 1?", "Question 2?", "Question 3?", "Question 4?", "Question 5?", "Question 6?"]"""
+Return ONLY a JSON array of question strings."""
 
     try:
         response = client.messages.create(
@@ -143,39 +160,30 @@ Return ONLY a JSON array of question strings, like:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
         )
+        if not response.content:
+            raise ValueError("Empty response")
         text = response.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1].split("```")[0]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text.strip())
-    except Exception:
-        return [
-            "What is this project about?",
-            "How do I set up my development environment?",
-            "What's the project architecture?",
-            "How do I run the tests?",
-            "What's the contribution workflow?",
-        ]
+        result = _parse_json_list(text)
+        return [str(q) for q in result if isinstance(q, str) and q.strip()][:8] or _default_starters()
+    except Exception as e:
+        logger.warning(f"Failed to generate starter questions: {e}")
+        return _default_starters()
 
 
 def generate_followup_questions(
     user_question: str,
     assistant_response: str,
-    model: str = None,
 ) -> list[str]:
     """Generate 2-3 contextual follow-up questions after a response."""
-    model = model or CHAT_MODEL
     client = _get_client()
 
-    prompt = f"""Based on the question "{user_question}" and the answer provided, \
-suggest 2-3 natural follow-up questions the user might want to ask next. \
-Keep them concise (under 10 words each).
+    prompt = f"""Based on the question and answer, suggest 2-3 natural follow-up \
+questions the user might ask next. Keep them concise (under 10 words each).
 Return ONLY a JSON array of strings."""
 
     try:
         response = client.messages.create(
-            model=model,
+            model=FAST_MODEL,
             max_tokens=256,
             messages=[
                 {"role": "user", "content": user_question},
@@ -184,11 +192,138 @@ Return ONLY a JSON array of strings."""
             ],
             temperature=0.7,
         )
+        if not response.content:
+            return []
         text = response.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1].split("```")[0]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text.strip())[:3]
-    except Exception:
+        result = _parse_json_list(text)
+        return [str(q) for q in result if isinstance(q, str) and q.strip()][:3]
+    except Exception as e:
+        logger.warning(f"Failed to generate follow-up questions: {e}")
         return []
+
+
+def _parse_json_list(text: str) -> list:
+    """Safely parse a JSON list from LLM output."""
+    if "```" in text:
+        text = text.split("```")[1].split("```")[0]
+        if text.startswith("json"):
+            text = text[4:]
+    parsed = json.loads(text.strip())
+    if not isinstance(parsed, list):
+        return []
+    return parsed
+
+
+def _default_starters() -> list[str]:
+    return [
+        "What is this project about?",
+        "How do I set up my development environment?",
+        "What's the project architecture?",
+        "How do I run the tests?",
+        "What's the contribution workflow?",
+    ]
+
+
+# ============================================================
+# Background chat response — survives Streamlit page switches
+# ============================================================
+
+_bg_chat = {
+    "running": False,
+    "prompt": "",
+    "response": None,   # Full response text when done
+    "sources": [],
+    "followups": [],
+    "error": None,
+}
+_bg_chat_lock = threading.Lock()
+
+
+def get_bg_chat_status() -> dict:
+    """Get background chat response status (thread-safe)."""
+    with _bg_chat_lock:
+        return dict(_bg_chat)
+
+
+def start_bg_chat(messages: list[dict], indexed_trees: dict, prompt: str) -> None:
+    """Start generating a chat response in the background."""
+    with _bg_chat_lock:
+        if _bg_chat["running"]:
+            return
+        _bg_chat["running"] = True
+        _bg_chat["prompt"] = prompt
+        _bg_chat["response"] = None
+        _bg_chat["sources"] = []
+        _bg_chat["followups"] = []
+        _bg_chat["error"] = None
+
+    def _worker():
+        try:
+            model = CHAT_MODEL
+            client = _get_client()
+
+            # RAG search
+            user_query = messages[-1].get("content", "") if messages else ""
+            sources = []
+            context = ""
+            if indexed_trees and user_query:
+                sources = search_trees(user_query, indexed_trees)
+                if sources:
+                    context = build_context(sources)
+
+            # Build system prompt
+            if context:
+                system = f"""{SYSTEM_PROMPT}
+
+<retrieved_documentation>
+{context}
+</retrieved_documentation>
+
+Use the above documentation context to answer the user's question. Cite the document \
+and section when referencing specific information."""
+            else:
+                system = SYSTEM_PROMPT
+
+            recent = messages[-10:]
+            anthropic_messages = [{"role": m["role"], "content": m["content"]} for m in recent]
+
+            # Non-streaming call (background — no UI to stream to)
+            response = client.messages.create(
+                model=model,
+                max_tokens=2048,
+                system=system,
+                messages=anthropic_messages,
+            )
+            response_text = response.content[0].text if response.content else ""
+
+            # Generate follow-ups
+            followups = []
+            try:
+                followups = generate_followup_questions(prompt, response_text)
+            except Exception:
+                pass
+
+            with _bg_chat_lock:
+                _bg_chat["response"] = response_text
+                _bg_chat["sources"] = sources
+                _bg_chat["followups"] = followups
+
+        except Exception as e:
+            logger.error(f"Background chat error: {e}")
+            with _bg_chat_lock:
+                _bg_chat["error"] = str(e)
+        finally:
+            with _bg_chat_lock:
+                _bg_chat["running"] = False
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def clear_bg_chat() -> None:
+    """Clear background chat state after collecting results."""
+    with _bg_chat_lock:
+        _bg_chat["response"] = None
+        _bg_chat["sources"] = []
+        _bg_chat["followups"] = []
+        _bg_chat["error"] = None
+        _bg_chat["prompt"] = ""

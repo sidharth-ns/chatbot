@@ -1,9 +1,13 @@
 import streamlit as st
+import time
 
 st.set_page_config(page_title="Chat - OnboardBot", page_icon="🤖", layout="wide")
 
 from config.settings import ANTHROPIC_API_KEY
-from core.chat import stream_chat_response, generate_starter_questions, generate_followup_questions
+from core.chat import (
+    stream_chat_response, generate_starter_questions, generate_followup_questions,
+    get_bg_chat_status, start_bg_chat, clear_bg_chat,
+)
 from core.checklist import (
     load_config,
     init_state,
@@ -22,8 +26,8 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "followups" not in st.session_state:
     st.session_state.followups = []
-if "last_sources" not in st.session_state:
-    st.session_state.last_sources = []
+if "starter_questions" not in st.session_state:
+    st.session_state.starter_questions = None
 
 trees = st.session_state.get("indexed_trees", {})
 
@@ -32,7 +36,6 @@ with st.sidebar:
     st.header("🤖 OnboardBot")
     st.divider()
 
-    # Indexed docs status
     if trees:
         from core.indexer import count_nodes
         total_files = len(trees)
@@ -44,7 +47,6 @@ with st.sidebar:
 
     st.divider()
 
-    # Checklist progress
     if not is_complete(st.session_state):
         completed, total = get_progress(st.session_state)
         st.subheader("Onboarding Progress")
@@ -55,14 +57,12 @@ with st.sidebar:
             skip_checklist(st.session_state)
             st.rerun()
     else:
-        completed, total = get_progress(st.session_state)
         st.subheader("Onboarding Progress")
         st.progress(1.0)
-        st.caption(f"✅ Onboarding complete!")
+        st.caption("✅ Onboarding complete!")
 
     st.divider()
 
-    # Reset buttons
     if st.button("🔄 Reset Checklist"):
         reset_checklist(st.session_state)
         st.rerun()
@@ -70,13 +70,12 @@ with st.sidebar:
     if st.button("🗑️ Clear Chat"):
         st.session_state.chat_history = []
         st.session_state.followups = []
-        st.session_state.last_sources = []
+        st.session_state.starter_questions = None
         st.rerun()
 
 # --- Main content ---
 st.title("💬 OnboardBot Chat")
 
-# Validate
 if not ANTHROPIC_API_KEY:
     st.error("⚠️ ANTHROPIC_API_KEY not set. Add it to your `.env` file.")
     st.stop()
@@ -88,28 +87,53 @@ if not trees:
 
 
 # ============================================================
+# Check for background chat response (from page switch)
+# ============================================================
+bg_chat = get_bg_chat_status()
+
+if bg_chat["running"]:
+    # Show waiting indicator
+    st.info(f"🔄 **Generating response for:** \"{bg_chat['prompt'][:80]}...\"")
+    st.caption("The response is being generated in the background. Please wait...")
+    time.sleep(1.5)
+    st.rerun()
+
+if bg_chat["response"] is not None:
+    # Collect background response into chat history
+    st.session_state.chat_history.append({"role": "user", "content": bg_chat["prompt"]})
+    st.session_state.chat_history.append({
+        "role": "assistant",
+        "content": bg_chat["response"],
+        "sources": bg_chat["sources"],
+    })
+    st.session_state.followups = [q for q in bg_chat.get("followups", []) if isinstance(q, str) and q.strip()]
+    clear_bg_chat()
+    st.rerun()
+
+if bg_chat["error"]:
+    st.error(f"⚠️ **Background response failed:** {bg_chat['error'][:200]}")
+    clear_bg_chat()
+
+
+# ============================================================
 # Phase A: Onboarding Checklist Flow
 # ============================================================
 if not is_complete(st.session_state):
     config = load_config()
 
-    # Show welcome message at start
     if not st.session_state.checklist_messages:
         st.session_state.checklist_messages.append({
             "role": "assistant",
             "content": config["welcome_message"],
         })
 
-    # Display checklist conversation
     for msg in st.session_state.checklist_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Get current question
     current_q = get_current_question(st.session_state)
 
     if current_q:
-        # Show the question
         with st.chat_message("assistant"):
             st.markdown(f"**{current_q['question']}**")
 
@@ -120,7 +144,6 @@ if not is_complete(st.session_state):
                 no_clicked = st.button("❌ No", key=f"no_{current_q['id']}")
 
         if yes_clicked:
-            # Record answer and move on
             st.session_state.checklist_messages.append({
                 "role": "user",
                 "content": f"✅ Yes — {current_q['question']}",
@@ -133,18 +156,13 @@ if not is_complete(st.session_state):
             st.rerun()
 
         if no_clicked:
-            # Get help content
             help_content = get_help_content(current_q, trees)
-
-            # Build response
             response_parts = [help_content["message"]]
 
             if help_content["command"]:
                 response_parts.append(f"\n```bash\n{help_content['command']}\n```")
-
             if help_content["link"]:
                 response_parts.append(f"\n🔗 [{help_content['link']}]({help_content['link']})")
-
             if help_content["doc_content"]:
                 response_parts.append(f"\n📚 **From your project docs:**\n\n{help_content['doc_content']}")
 
@@ -162,26 +180,23 @@ if not is_complete(st.session_state):
             st.rerun()
 
     else:
-        # All questions answered — show completion
         with st.chat_message("assistant"):
             st.markdown(config["completion_message"])
-            st.balloons()
-        # Mark complete by checking — is_complete should now return True
-        st.rerun()
+        if st.button("🚀 Continue to Chat", type="primary"):
+            st.rerun()
 
-    st.stop()  # Don't show chat interface during checklist
+    st.stop()
 
 
 # ============================================================
 # Phase B: Free-form Chat
 # ============================================================
 
-# Display chat history
+# Display full chat history
 for i, msg in enumerate(st.session_state.chat_history):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-        # Show sources after assistant messages
         if msg["role"] == "assistant" and msg.get("sources"):
             sources = msg["sources"]
             files_set = set(s["file_name"] for s in sources)
@@ -193,29 +208,43 @@ for i, msg in enumerate(st.session_state.chat_history):
                         st.caption(f'"{snippet}..."')
                     st.divider()
 
-        # Show follow-up questions after the last assistant message
-        if msg["role"] == "assistant" and i == len(st.session_state.chat_history) - 1:
-            if st.session_state.followups:
-                cols = st.columns(len(st.session_state.followups))
-                for j, q in enumerate(st.session_state.followups):
-                    with cols[j]:
-                        if st.button(q, key=f"followup_{i}_{j}"):
-                            st.session_state.pending_question = q
-                            st.rerun()
+# Follow-up buttons
+if st.session_state.chat_history and st.session_state.followups:
+    last_msg = st.session_state.chat_history[-1]
+    if last_msg["role"] == "assistant":
+        valid_followups = [q for q in st.session_state.followups if isinstance(q, str) and q.strip()]
+        if valid_followups:
+            cols = st.columns(len(valid_followups))
+            for j, q in enumerate(valid_followups):
+                with cols[j]:
+                    if st.button(q, key=f"followup_{j}"):
+                        st.session_state.pending_question = q
+                        st.rerun()
 
-# Starter questions (show when chat is empty)
+# Starter questions
+DEFAULT_STARTERS = [
+    "What is this project about?",
+    "How do I set up my development environment?",
+    "What's the project architecture?",
+    "How do I run the tests?",
+    "What's the contribution workflow?",
+    "How does authentication work?",
+]
+
 if not st.session_state.chat_history:
     st.markdown("**💡 Suggested questions to get started:**")
-    try:
-        suggestions = generate_starter_questions(trees)
-    except Exception:
-        suggestions = [
-            "What is this project about?",
-            "How do I set up my development environment?",
-            "What's the project architecture?",
-        ]
 
-    # Show up to 3 in a row, then next 3
+    if st.session_state.starter_questions is None:
+        try:
+            custom = generate_starter_questions(trees)
+            if custom:
+                st.session_state.starter_questions = custom
+            else:
+                st.session_state.starter_questions = DEFAULT_STARTERS
+        except Exception:
+            st.session_state.starter_questions = DEFAULT_STARTERS
+
+    suggestions = st.session_state.starter_questions
     for row_start in range(0, len(suggestions), 3):
         row = suggestions[row_start : row_start + 3]
         cols = st.columns(len(row))
@@ -225,25 +254,27 @@ if not st.session_state.chat_history:
                     st.session_state.pending_question = q
                     st.rerun()
 
-# Handle pending question (from suggestions or follow-ups)
+# Handle pending question
 pending = st.session_state.pop("pending_question", None)
 
 # Chat input
 prompt = pending or st.chat_input("Ask about the project documentation...")
 
 if prompt:
-    # Display and store user message
-    st.session_state.chat_history.append({"role": "user", "content": prompt})
+    # Show user message
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Prepare messages for Claude (role + content only)
+    # Build API messages
     api_messages = [
         {"role": m["role"], "content": m["content"]}
         for m in st.session_state.chat_history
-    ]
+    ] + [{"role": "user", "content": prompt}]
 
-    # Stream response with RAG
+    # Start background response (survives page switches)
+    start_bg_chat(api_messages, trees, prompt)
+
+    # Try to stream the response on this page
     with st.chat_message("assistant"):
         try:
             with st.spinner("Searching documentation..."):
@@ -261,39 +292,33 @@ if prompt:
                 st.error("⚠️ **Invalid API key.** Please check your ANTHROPIC_API_KEY in settings/secrets.")
             else:
                 st.error(f"⚠️ **API Error:** {error_msg[:200]}")
-            # Remove the user message we just added since we couldn't respond
-            st.session_state.chat_history.pop()
             st.stop()
 
-    # Store response with sources
-    st.session_state.chat_history.append({
-        "role": "assistant",
-        "content": response_text,
-        "sources": sources,
-    })
-    st.session_state.last_sources = sources
+    # Streaming completed — commit to history and clear background task
+    if response_text:
+        st.session_state.chat_history.append({"role": "user", "content": prompt})
+        st.session_state.chat_history.append({
+            "role": "assistant",
+            "content": response_text,
+            "sources": sources,
+        })
+        clear_bg_chat()  # Cancel background since we got the response via streaming
 
-    # Show sources
-    if sources:
-        files_set = set(s["file_name"] for s in sources)
-        with st.expander(f"📚 Sources ({len(sources)} sections from {len(files_set)} files)"):
-            for s in sources:
-                st.markdown(f"**{s['file_name']}** > {s['heading_path']}")
-                snippet = s.get("content", "")[:200]
-                if snippet:
-                    st.caption(f'"{snippet}..."')
-                st.divider()
+        # Cap chat history
+        if len(st.session_state.chat_history) > 50:
+            st.session_state.chat_history = st.session_state.chat_history[-50:]
 
-    # Generate follow-up questions
-    try:
-        followups = generate_followup_questions(prompt, response_text)
-        st.session_state.followups = followups
-        if followups:
-            cols = st.columns(len(followups))
-            for j, q in enumerate(followups):
-                with cols[j]:
-                    if st.button(q, key=f"followup_new_{j}"):
-                        st.session_state.pending_question = q
-                        st.rerun()
-    except Exception:
-        st.session_state.followups = []
+        # Generate follow-up questions
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(generate_followup_questions, prompt, response_text)
+                try:
+                    followups = future.result(timeout=3)
+                except Exception:
+                    followups = []
+            st.session_state.followups = [q for q in followups if isinstance(q, str) and q.strip()]
+        except Exception:
+            st.session_state.followups = []
+
+        st.rerun()

@@ -1,12 +1,18 @@
 import streamlit as st
 import os
+import html
+import time
 import tempfile
-from datetime import datetime, timezone
+import shutil
 
 st.set_page_config(page_title="Upload Docs - OnboardBot", page_icon="🤖", layout="wide")
 
 from config.settings import ANTHROPIC_API_KEY, SAMPLE_DOCS_DIR
-from core.indexer import index_markdown_file, scan_directory, count_nodes, has_heading_structure
+from core.indexer import (
+    index_markdown_file, scan_directory, count_nodes,
+    has_heading_structure, start_bg_indexing, get_bg_status,
+    _bg_lock, _bg_indexing,
+)
 
 # --- Sidebar: Indexed docs status ---
 with st.sidebar:
@@ -24,20 +30,15 @@ with st.sidebar:
             cached = tree_data.get("cached", False)
             badge = " (cached)" if cached else ""
             with st.expander(f"📄 {tree.get('doc_name', filename)}{badge}"):
-                def render_toc(nodes, indent=0):
+                def _render_toc(nodes, indent=0):
                     for node in nodes:
-                        prefix = "&nbsp;" * indent * 4
+                        prefix = "  " * indent
                         nid = node.get("node_id", "")
-                        title = node.get("title", "")
-                        st.markdown(f"{prefix}`{nid}` {title}", unsafe_allow_html=True)
+                        title = html.escape(node.get("title", ""))
+                        st.markdown(f"{prefix}`{nid}` {title}")
                         if node.get("nodes"):
-                            render_toc(node["nodes"], indent + 1)
-                render_toc(tree.get("structure", []))
-
-                # Individual re-index button
-                if st.button(f"Re-index", key=f"reindex_{filename}"):
-                    st.session_state[f"_reindex_{filename}"] = True
-                    st.rerun()
+                            _render_toc(node["nodes"], indent + 1)
+                _render_toc(tree.get("structure", []))
 
         st.divider()
         if st.button("🔄 Re-index All"):
@@ -49,7 +50,6 @@ with st.sidebar:
 # --- Main content ---
 st.title("📄 Upload & Index Documentation")
 
-# Validate API key
 if not ANTHROPIC_API_KEY:
     st.error("⚠️ ANTHROPIC_API_KEY not set.")
     st.markdown("""
@@ -61,9 +61,48 @@ if not ANTHROPIC_API_KEY:
     """)
     st.stop()
 
-# Initialize session state
 if "indexed_trees" not in st.session_state:
     st.session_state.indexed_trees = {}
+
+# ============================================================
+# Check for background indexing — each condition is independent
+# ============================================================
+bg_status = get_bg_status()
+
+# Show errors first (regardless of running/complete state)
+if bg_status["error"]:
+    error_msg = bg_status["error"]
+    if "credit balance" in error_msg.lower():
+        st.error("⚠️ **Anthropic API credit balance is too low.** Add credits at [console.anthropic.com/settings/billing](https://console.anthropic.com/settings/billing).")
+    else:
+        st.error(f"⚠️ **Indexing error:** {error_msg[:300]}")
+    # Clear the error so it doesn't persist
+    with _bg_lock:
+        _bg_indexing["error"] = None
+        _bg_indexing["complete"] = False
+
+# Show progress if running
+if bg_status["running"]:
+    progress_pct = bg_status["progress"] / bg_status["total"] if bg_status["total"] > 0 else 0
+    st.info(f"🔄 **Indexing in progress...** ({bg_status['progress']}/{bg_status['total']} files)")
+    st.progress(progress_pct)
+    st.caption(f"Currently processing: {bg_status['current_file']}")
+    st.caption("You can switch pages — indexing continues in the background.")
+    time.sleep(1.5)
+    st.rerun()
+
+# Collect completed results
+if bg_status["complete"] and bg_status["results"]:
+    for filename, result in bg_status["results"].items():
+        st.session_state.indexed_trees[filename] = result
+    with _bg_lock:
+        _bg_indexing["results"] = {}
+        _bg_indexing["complete"] = False
+    st.toast(f"✅ Indexed {len(bg_status['results'])} files!", icon="🎉")
+    # Clean up temp files if any
+    if "_temp_upload_dir" in st.session_state:
+        shutil.rmtree(st.session_state.pop("_temp_upload_dir"), ignore_errors=True)
+    st.rerun()
 
 # ============================================================
 # Option 1: Load Sample Docs
@@ -73,56 +112,28 @@ st.write("Load pre-built sample documentation to try OnboardBot immediately.")
 
 col1, col2 = st.columns([1, 3])
 with col1:
-    load_samples = st.button("📦 Load Sample Docs", type="primary")
+    load_samples = st.button("📦 Load Sample Docs", type="primary", disabled=bg_status["running"])
 
-if load_samples or st.session_state.get("_reindex_all"):
-    st.session_state.pop("_reindex_all", None)
+# Capture flag before popping
+reindex_all = st.session_state.pop("_reindex_all", False)
 
+if load_samples or reindex_all:
     if os.path.isdir(SAMPLE_DOCS_DIR):
         md_files = scan_directory(SAMPLE_DOCS_DIR)
         if md_files:
-            try:
-                with st.status(f"Indexing {len(md_files)} files...", expanded=True) as status:
-                    progress = st.progress(0)
-                    for i, filepath in enumerate(md_files):
-                        filename = os.path.basename(filepath)
+            for filepath in md_files:
+                if not has_heading_structure(filepath):
+                    st.warning(f"⚠️ {os.path.basename(filepath)} has no heading structure.")
 
-                        # Check heading structure
-                        if not has_heading_structure(filepath):
-                            st.warning(f"⚠️ {filename} has no heading structure. PageIndex works best with properly structured Markdown using #, ##, ### headings.")
-
-                        st.write(f"Processing {filename}...")
-                        force = st.session_state.get("_reindex_all", False)
-                        result = index_markdown_file(filepath, force_reindex=force)
-                        st.session_state.indexed_trees[filename] = result
-                        progress.progress((i + 1) / len(md_files))
-
-                    status.update(label=f"✅ Indexed {len(md_files)} files!", state="complete")
-                st.toast(f"✅ Indexed {len(md_files)} files!", icon="🎉")
-                st.rerun()
-            except Exception as e:
-                error_msg = str(e)
-                if "credit balance" in error_msg.lower():
-                    st.error("⚠️ **Anthropic API credit balance is too low.** Add credits at [console.anthropic.com/settings/billing](https://console.anthropic.com/settings/billing).")
-                else:
-                    st.error(f"⚠️ **Indexing error:** {error_msg[:300]}")
+            start_bg_indexing(md_files, force_reindex=reindex_all)
+            st.info(f"🚀 Started indexing {len(md_files)} files in the background...")
+            st.caption("You can switch to other pages — indexing will continue.")
+            time.sleep(1)
+            st.rerun()
         else:
             st.warning("No .md files found in sample_docs/")
     else:
         st.error(f"Sample docs directory not found: {SAMPLE_DOCS_DIR}")
-
-# Handle individual re-index
-for filename in list(st.session_state.get("indexed_trees", {}).keys()):
-    if st.session_state.pop(f"_reindex_{filename}", False):
-        tree_data = st.session_state.indexed_trees[filename]
-        # Find original filepath
-        filepath = os.path.join(SAMPLE_DOCS_DIR, filename)
-        if os.path.exists(filepath):
-            with st.spinner(f"Re-indexing {filename}..."):
-                result = index_markdown_file(filepath, force_reindex=True)
-                st.session_state.indexed_trees[filename] = result
-            st.toast(f"✅ Re-indexed {filename}", icon="🔄")
-            st.rerun()
 
 st.divider()
 
@@ -139,33 +150,27 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    if st.button("🔨 Build Index", type="primary"):
-        with st.status(f"Indexing {len(uploaded_files)} uploaded files...", expanded=True) as status:
-            progress = st.progress(0)
-            for i, uploaded_file in enumerate(uploaded_files):
-                st.write(f"Processing {uploaded_file.name}...")
+    if st.button("🔨 Build Index", type="primary", disabled=bg_status["running"]):
+        # Save uploaded files to a temp directory (cleaned up after indexing completes)
+        temp_dir = tempfile.mkdtemp(prefix="onboardbot_upload_")
+        st.session_state["_temp_upload_dir"] = temp_dir
+        temp_paths = []
+        for uploaded_file in uploaded_files:
+            dest = os.path.join(temp_dir, uploaded_file.name)
+            try:
+                content = uploaded_file.getvalue().decode("utf-8")
+            except UnicodeDecodeError:
+                st.warning(f"⚠️ {uploaded_file.name} is not valid UTF-8. Skipping.")
+                continue
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write(content)
+            temp_paths.append(dest)
 
-                # Write to temp file (md_to_tree needs a file path)
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".md", delete=False, encoding="utf-8"
-                ) as tmp:
-                    tmp.write(uploaded_file.getvalue().decode("utf-8"))
-                    tmp_path = tmp.name
-
-                try:
-                    if not has_heading_structure(tmp_path):
-                        st.warning(f"⚠️ {uploaded_file.name} has no heading structure. PageIndex works best with properly structured Markdown using #, ##, ### headings.")
-
-                    result = index_markdown_file(tmp_path)
-                    st.session_state.indexed_trees[uploaded_file.name] = result
-                finally:
-                    os.unlink(tmp_path)
-
-                progress.progress((i + 1) / len(uploaded_files))
-
-            status.update(label=f"✅ Indexed {len(uploaded_files)} files!", state="complete")
-        st.toast(f"✅ Indexed {len(uploaded_files)} files!", icon="🎉")
-        st.rerun()
+        if temp_paths:
+            start_bg_indexing(temp_paths)
+            st.info(f"🚀 Started indexing {len(temp_paths)} files in the background...")
+            time.sleep(1)
+            st.rerun()
 
 st.divider()
 
@@ -185,29 +190,16 @@ if folder_path:
         if md_files:
             st.write(f"Found {len(md_files)} markdown files:")
 
-            # Show files with checkboxes
             selected_files = []
             for filepath in md_files:
                 relative = os.path.relpath(filepath, folder_path)
                 if st.checkbox(relative, value=True, key=f"scan_{filepath}"):
                     selected_files.append(filepath)
 
-            if selected_files and st.button("🔨 Build Index from Selected", type="primary"):
-                with st.status(f"Indexing {len(selected_files)} files...", expanded=True) as status:
-                    progress = st.progress(0)
-                    for i, filepath in enumerate(selected_files):
-                        filename = os.path.basename(filepath)
-                        st.write(f"Processing {filename}...")
-
-                        if not has_heading_structure(filepath):
-                            st.warning(f"⚠️ {filename} has no heading structure.")
-
-                        result = index_markdown_file(filepath)
-                        st.session_state.indexed_trees[filename] = result
-                        progress.progress((i + 1) / len(selected_files))
-
-                    status.update(label=f"✅ Indexed {len(selected_files)} files!", state="complete")
-                st.toast(f"✅ Indexed {len(selected_files)} files!", icon="🎉")
+            if selected_files and st.button("🔨 Build Index from Selected", type="primary", disabled=bg_status["running"]):
+                start_bg_indexing(selected_files)
+                st.info(f"🚀 Started indexing {len(selected_files)} files in the background...")
+                time.sleep(1)
                 st.rerun()
         else:
             st.warning("No .md files found in this directory.")

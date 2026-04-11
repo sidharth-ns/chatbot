@@ -13,8 +13,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Clone PageIndex
 RUN git clone https://github.com/VectifyAI/PageIndex.git lib/PageIndex
 
+# Create non-root user
+RUN useradd --create-home appuser && \
+    chown -R appuser:appuser /app
+
 # Copy application
-COPY . .
+COPY --chown=appuser:appuser . .
+
+# Switch to non-root user
+USER appuser
 
 EXPOSE 8501
 

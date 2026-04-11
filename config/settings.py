@@ -20,7 +20,8 @@ ANTHROPIC_API_KEY = _get_secret("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = _get_secret("OPENAI_API_KEY")
 
 # Model for PageIndex tree generation (litellm format — prefix with provider)
-PAGEINDEX_MODEL = _get_secret("PAGEINDEX_MODEL", "anthropic/claude-sonnet-4-20250514")
+# Haiku is 5-10x faster than Sonnet for summary generation, and quality is sufficient
+PAGEINDEX_MODEL = _get_secret("PAGEINDEX_MODEL", "anthropic/claude-haiku-4-5-20251001")
 
 # Model for chat responses (anthropic SDK format — no prefix)
 CHAT_MODEL = _get_secret("CHAT_MODEL", "claude-sonnet-4-20250514")
