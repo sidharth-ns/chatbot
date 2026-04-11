@@ -23,8 +23,19 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("PyPDF2", MagicMock())
 sys.modules.setdefault("pymupdf", MagicMock())
 
-# Add PageIndex to path
-_lib_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "PageIndex")
+# Add PageIndex to path — auto-clone if missing (e.g., Streamlit Cloud deployment)
+_base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_lib_path = os.path.join(_base_dir, "lib", "PageIndex")
+
+if not os.path.isdir(os.path.join(_lib_path, "pageindex")):
+    import subprocess
+    os.makedirs(os.path.join(_base_dir, "lib"), exist_ok=True)
+    subprocess.run(
+        ["git", "clone", "https://github.com/VectifyAI/PageIndex.git", _lib_path],
+        check=True,
+        capture_output=True,
+    )
+
 if _lib_path not in sys.path:
     sys.path.insert(0, _lib_path)
 

@@ -97,6 +97,6 @@ cp .env.example .env
 # Edit .env and add your ANTHROPIC_API_KEY
 
 # 3. Run the app
-streamlit run app.py
+streamlit run streamlit_app.py
 ```
 """)
