@@ -90,16 +90,10 @@ if not trees:
 # Check for background chat response (from page switch)
 # ============================================================
 bg_chat = get_bg_chat_status()
+is_generating = bg_chat["running"]
 
-if bg_chat["running"]:
-    # Show waiting indicator
-    st.info(f"🔄 **Generating response for:** \"{bg_chat['prompt'][:80]}...\"")
-    st.caption("The response is being generated in the background. Please wait...")
-    time.sleep(1.5)
-    st.rerun()
-
+# 1. Check for COMPLETED response first (highest priority — show it immediately)
 if bg_chat["response"] is not None:
-    # Collect background response into chat history
     st.session_state.chat_history.append({"role": "user", "content": bg_chat["prompt"]})
     st.session_state.chat_history.append({
         "role": "assistant",
@@ -110,9 +104,17 @@ if bg_chat["response"] is not None:
     clear_bg_chat()
     st.rerun()
 
+# 2. Check for errors
 if bg_chat["error"]:
-    st.error(f"⚠️ **Background response failed:** {bg_chat['error'][:200]}")
+    st.error(f"⚠️ **Response failed:** {bg_chat['error'][:200]}")
     clear_bg_chat()
+
+# 3. Check if still running (show spinner, poll quickly)
+if bg_chat["running"]:
+    st.info(f"🔄 **Generating response for:** \"{bg_chat['prompt'][:80]}\"")
+    st.caption("Please wait... you can switch pages safely.")
+    time.sleep(0.5)
+    st.rerun()
 
 
 # ============================================================
@@ -217,7 +219,7 @@ if st.session_state.chat_history and st.session_state.followups:
             cols = st.columns(len(valid_followups))
             for j, q in enumerate(valid_followups):
                 with cols[j]:
-                    if st.button(q, key=f"followup_{j}"):
+                    if st.button(q, key=f"followup_{j}", disabled=is_generating):
                         st.session_state.pending_question = q
                         st.rerun()
 
@@ -250,15 +252,18 @@ if not st.session_state.chat_history:
         cols = st.columns(len(row))
         for j, q in enumerate(row):
             with cols[j]:
-                if st.button(q, key=f"starter_{row_start + j}"):
+                if st.button(q, key=f"starter_{row_start + j}", disabled=is_generating):
                     st.session_state.pending_question = q
                     st.rerun()
 
 # Handle pending question
-pending = st.session_state.pop("pending_question", None)
+pending = st.session_state.pop("pending_question", None) if not is_generating else None
 
-# Chat input
-prompt = pending or st.chat_input("Ask about the project documentation...")
+# Chat input — disabled while a response is streaming
+prompt = pending or st.chat_input(
+    "Generating response... please wait" if is_generating else "Ask about the project documentation...",
+    disabled=is_generating,
+)
 
 if prompt and prompt.strip():
     prompt = prompt.strip()

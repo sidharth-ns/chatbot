@@ -231,8 +231,10 @@ def _default_starters() -> list[str]:
 
 _bg_chat = {
     "running": False,
+    "cancelled": False,  # Set to True when foreground streaming succeeds
+    "gen_id": 0,         # Incremented each generation to detect stale results
     "prompt": "",
-    "response": None,   # Full response text when done
+    "response": None,
     "sources": [],
     "followups": [],
     "error": None,
@@ -252,11 +254,14 @@ def start_bg_chat(messages: list[dict], indexed_trees: dict, prompt: str) -> Non
         if _bg_chat["running"]:
             return
         _bg_chat["running"] = True
+        _bg_chat["cancelled"] = False
+        _bg_chat["gen_id"] += 1
         _bg_chat["prompt"] = prompt
         _bg_chat["response"] = None
         _bg_chat["sources"] = []
         _bg_chat["followups"] = []
         _bg_chat["error"] = None
+        current_gen_id = _bg_chat["gen_id"]
 
     def _worker():
         try:
@@ -315,14 +320,17 @@ and section when referencing specific information."""
                 pass
 
             with _bg_chat_lock:
-                _bg_chat["response"] = response_text
-                _bg_chat["sources"] = sources
-                _bg_chat["followups"] = followups
+                # Only write results if not cancelled (foreground streaming didn't succeed)
+                if not _bg_chat["cancelled"] and _bg_chat["gen_id"] == current_gen_id:
+                    _bg_chat["response"] = response_text
+                    _bg_chat["sources"] = sources
+                    _bg_chat["followups"] = followups
 
         except Exception as e:
             logger.error(f"Background chat error: {e}")
             with _bg_chat_lock:
-                _bg_chat["error"] = str(e)
+                if not _bg_chat["cancelled"] and _bg_chat["gen_id"] == current_gen_id:
+                    _bg_chat["error"] = str(e)
         finally:
             with _bg_chat_lock:
                 _bg_chat["running"] = False
@@ -331,8 +339,9 @@ and section when referencing specific information."""
 
 
 def clear_bg_chat() -> None:
-    """Clear background chat state after collecting results."""
+    """Clear background chat state and cancel any pending result."""
     with _bg_chat_lock:
+        _bg_chat["cancelled"] = True  # Tell worker to discard its result
         _bg_chat["response"] = None
         _bg_chat["sources"] = []
         _bg_chat["followups"] = []

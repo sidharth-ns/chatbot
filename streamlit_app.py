@@ -79,24 +79,3 @@ if trees:
 else:
     st.info("**Getting started:** Upload your project's Markdown docs on the Upload page, or load the sample docs to try it out.")
 
-st.divider()
-
-st.markdown("""
-### Quick Start
-
-```bash
-# 1. Clone and install
-git clone <repo-url>
-cd chatbot
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-git clone https://github.com/VectifyAI/PageIndex.git lib/PageIndex
-
-# 2. Set your API key
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
-
-# 3. Run the app
-streamlit run streamlit_app.py
-```
-""")
