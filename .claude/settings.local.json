@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:docs.pageindex.ai)",
+      "WebFetch(domain:medium.com)",
+      "Bash(pip show:*)",
+      "Bash(python3 -c \"import pageindex; print\\(pageindex.__file__\\)\")",
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)",
+      "Bash(pip3 show:*)",
+      "Bash(pip3 index:*)",
+      "WebFetch(domain:libraries.io)",
+      "Bash(git clone:*)",
+      "Bash(pip install:*)",
+      "Bash(grep -E '^#{1,4} ' /Users/innovinlabs/Desktop/InnovinLabs/chatbot/sample_docs/ARCHITECTURE.md)",
+      "Bash(grep -E \"^#{1,4} \" /Users/innovinlabs/Desktop/InnovinLabs/chatbot/sample_docs/CONTRIBUTING.md)"
+    ]
+  }
+}

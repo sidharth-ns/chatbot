@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  onboardbot:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./sample_docs:/app/sample_docs
+      - ./pageindex_cache:/app/pageindex_cache
+    env_file:
+      - .env
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+    restart: unless-stopped

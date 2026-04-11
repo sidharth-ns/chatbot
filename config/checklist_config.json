@@ -1,0 +1,66 @@
+{
+  "welcome_message": "Hey! Welcome aboard \ud83d\udc4b Let's make sure your dev environment is ready.",
+  "completion_message": "You're all set! \ud83c\udf89 Now ask me anything about the project documentation.",
+  "questions": [
+    {
+      "id": "repo_clone",
+      "question": "Have you cloned the project repository?",
+      "search_terms": ["clone", "repository", "git clone"],
+      "on_no": {
+        "message": "No worries! Run this command to clone the repo:",
+        "command": "git clone <REPO_URL>",
+        "link": null
+      }
+    },
+    {
+      "id": "git_setup",
+      "question": "Do you have Git installed and configured (username + email)?",
+      "search_terms": ["git", "git config", "git setup"],
+      "on_no": {
+        "message": "Here's how to set up Git:",
+        "command": "git config --global user.name \"Your Name\"\ngit config --global user.email \"you@example.com\"",
+        "link": "https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup"
+      }
+    },
+    {
+      "id": "ssh_keys",
+      "question": "Have you set up your GitHub/GitLab SSH keys?",
+      "search_terms": ["ssh", "ssh key", "ssh-keygen"],
+      "on_no": {
+        "message": "You'll need SSH keys to push/pull code. Follow this guide:",
+        "command": null,
+        "link": "https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent"
+      }
+    },
+    {
+      "id": "dependencies",
+      "question": "Have you installed the project dependencies?",
+      "search_terms": ["install", "dependencies", "requirements", "npm install", "pip install", "package.json", "requirements.txt"],
+      "on_no": {
+        "message": "Let me find the install instructions from the docs...",
+        "command": null,
+        "link": null
+      }
+    },
+    {
+      "id": "env_vars",
+      "question": "Have you created your .env file with the required environment variables?",
+      "search_terms": [".env", "environment variables", "configuration", "config", "env.example"],
+      "on_no": {
+        "message": "Let me find the environment setup instructions...",
+        "command": null,
+        "link": null
+      }
+    },
+    {
+      "id": "run_locally",
+      "question": "Can you run the project locally?",
+      "search_terms": ["run", "start", "dev server", "docker-compose up", "npm start", "python manage.py"],
+      "on_no": {
+        "message": "Here's how to run the project:",
+        "command": null,
+        "link": null
+      }
+    }
+  ]
+}
