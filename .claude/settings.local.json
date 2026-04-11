@@ -17,7 +17,9 @@
       "Bash(git clone:*)",
       "Bash(pip install:*)",
       "Bash(grep -E '^#{1,4} ' /Users/innovinlabs/Desktop/InnovinLabs/chatbot/sample_docs/ARCHITECTURE.md)",
-      "Bash(grep -E \"^#{1,4} \" /Users/innovinlabs/Desktop/InnovinLabs/chatbot/sample_docs/CONTRIBUTING.md)"
+      "Bash(grep -E \"^#{1,4} \" /Users/innovinlabs/Desktop/InnovinLabs/chatbot/sample_docs/CONTRIBUTING.md)",
+      "Bash(git restore:*)",
+      "Bash(git filter-branch:*)"
     ]
   }
 }
