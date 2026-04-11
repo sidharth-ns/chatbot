@@ -81,24 +81,31 @@ if load_samples or st.session_state.get("_reindex_all"):
     if os.path.isdir(SAMPLE_DOCS_DIR):
         md_files = scan_directory(SAMPLE_DOCS_DIR)
         if md_files:
-            with st.status(f"Indexing {len(md_files)} files...", expanded=True) as status:
-                progress = st.progress(0)
-                for i, filepath in enumerate(md_files):
-                    filename = os.path.basename(filepath)
+            try:
+                with st.status(f"Indexing {len(md_files)} files...", expanded=True) as status:
+                    progress = st.progress(0)
+                    for i, filepath in enumerate(md_files):
+                        filename = os.path.basename(filepath)
 
-                    # Check heading structure
-                    if not has_heading_structure(filepath):
-                        st.warning(f"⚠️ {filename} has no heading structure. PageIndex works best with properly structured Markdown using #, ##, ### headings.")
+                        # Check heading structure
+                        if not has_heading_structure(filepath):
+                            st.warning(f"⚠️ {filename} has no heading structure. PageIndex works best with properly structured Markdown using #, ##, ### headings.")
 
-                    st.write(f"Processing {filename}...")
-                    force = st.session_state.get("_reindex_all", False)
-                    result = index_markdown_file(filepath, force_reindex=force)
-                    st.session_state.indexed_trees[filename] = result
-                    progress.progress((i + 1) / len(md_files))
+                        st.write(f"Processing {filename}...")
+                        force = st.session_state.get("_reindex_all", False)
+                        result = index_markdown_file(filepath, force_reindex=force)
+                        st.session_state.indexed_trees[filename] = result
+                        progress.progress((i + 1) / len(md_files))
 
-                status.update(label=f"✅ Indexed {len(md_files)} files!", state="complete")
-            st.toast(f"✅ Indexed {len(md_files)} files!", icon="🎉")
-            st.rerun()
+                    status.update(label=f"✅ Indexed {len(md_files)} files!", state="complete")
+                st.toast(f"✅ Indexed {len(md_files)} files!", icon="🎉")
+                st.rerun()
+            except Exception as e:
+                error_msg = str(e)
+                if "credit balance" in error_msg.lower():
+                    st.error("⚠️ **Anthropic API credit balance is too low.** Add credits at [console.anthropic.com/settings/billing](https://console.anthropic.com/settings/billing).")
+                else:
+                    st.error(f"⚠️ **Indexing error:** {error_msg[:300]}")
         else:
             st.warning("No .md files found in sample_docs/")
     else:

@@ -245,13 +245,25 @@ if prompt:
 
     # Stream response with RAG
     with st.chat_message("assistant"):
-        with st.spinner("Searching documentation..."):
-            stream, sources = stream_chat_response(
-                messages=api_messages,
-                indexed_trees=trees,
-            )
+        try:
+            with st.spinner("Searching documentation..."):
+                stream, sources = stream_chat_response(
+                    messages=api_messages,
+                    indexed_trees=trees,
+                )
 
-        response_text = st.write_stream(stream)
+            response_text = st.write_stream(stream)
+        except Exception as e:
+            error_msg = str(e)
+            if "credit balance" in error_msg.lower() or "billing" in error_msg.lower():
+                st.error("⚠️ **Anthropic API credit balance is too low.** Please add credits at [console.anthropic.com/settings/billing](https://console.anthropic.com/settings/billing).")
+            elif "authentication" in error_msg.lower() or "api-key" in error_msg.lower() or "api_key" in error_msg.lower():
+                st.error("⚠️ **Invalid API key.** Please check your ANTHROPIC_API_KEY in settings/secrets.")
+            else:
+                st.error(f"⚠️ **API Error:** {error_msg[:200]}")
+            # Remove the user message we just added since we couldn't respond
+            st.session_state.chat_history.pop()
+            st.stop()
 
     # Store response with sources
     st.session_state.chat_history.append({
