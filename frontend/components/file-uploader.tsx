@@ -13,13 +13,7 @@ export function FileUploader() {
   const queryClient = useQueryClient();
 
   const uploadMutation = useMutation({
-    mutationFn: async (filesToUpload: File[]) => {
-      const results = [];
-      for (const file of filesToUpload) {
-        results.push(await api.uploadFile(file));
-      }
-      return results;
-    },
+    mutationFn: (filesToUpload: File[]) => api.uploadFiles(filesToUpload),
     onSuccess: () => {
       setFiles([]);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -125,13 +119,15 @@ export function FileUploader() {
                     {formatSize(file.size)}
                   </span>
                 </div>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => removeFile(file.name)}
-                  className="rounded p-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                  className="size-6 rounded text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
                 >
                   <X className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

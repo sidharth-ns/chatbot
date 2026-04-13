@@ -1,5 +1,8 @@
 "use client";
 
+import { ArrowUpRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
 interface SuggestionChipsProps {
   questions: string[];
   onSelect: (q: string) => void;
@@ -14,19 +17,21 @@ export function SuggestionChips({
   return (
     <div
       className={`flex flex-wrap gap-2 ${
-        disabled ? "pointer-events-none opacity-50" : ""
+        disabled ? "pointer-events-none opacity-40" : ""
       }`}
     >
       {questions.map((question) => (
-        <button
+        <Button
           key={question}
           type="button"
+          variant="outline"
           onClick={() => onSelect(question)}
           disabled={disabled}
-          className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:pointer-events-none disabled:opacity-50"
+          className="group h-auto rounded-xl border-zinc-800 bg-zinc-900/50 px-3.5 py-2 text-[13px] leading-snug text-zinc-400 transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-200 hover:shadow-sm active:scale-[0.98]"
         >
-          {question}
-        </button>
+          <span>{question}</span>
+          <ArrowUpRight className="size-3 shrink-0 opacity-0 transition-opacity duration-200 group-hover:opacity-60" />
+        </Button>
       ))}
     </div>
   );
