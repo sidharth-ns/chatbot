@@ -48,6 +48,7 @@ class SessionOut(BaseModel):
     title: str | None = None
     created_at: datetime
     updated_at: datetime
+    last_message: str | None = None
 
     model_config = {"from_attributes": True}
 

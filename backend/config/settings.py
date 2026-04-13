@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     PAGEINDEX_MODEL: str = "anthropic/claude-sonnet-4-20250514"
     CHAT_MODEL: str = "claude-sonnet-4-20250514"
 
+    # Upload / indexing limits
+    max_upload_size_mb: int = 10
+    allowed_index_paths: list[str] = []
+
     # Paths
     BASE_DIR: str = os.path.dirname(os.path.dirname(__file__))
     CACHE_DIR: str = ""
