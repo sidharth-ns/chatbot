@@ -1,0 +1,5 @@
+"""Chat / session endpoints (stub)."""
+
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/api/chat", tags=["chat"])
