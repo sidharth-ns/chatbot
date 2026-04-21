@@ -1,5 +1,6 @@
 """Chat / session endpoints with SSE streaming."""
 
+import asyncio
 import json
 import logging
 from uuid import UUID
@@ -21,6 +22,8 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 # Map session_id -> active stream_id so the stop endpoint can look it up
 _session_streams: dict[UUID, str] = {}
+# Track accumulated response per session for saving on abort/stop
+_session_responses: dict[UUID, dict] = {}  # {session_id: {"text": str, "sources": list|None}}
 
 
 # ── Sessions ──
@@ -169,48 +172,65 @@ async def chat(body: ChatIn, db: AsyncSession = Depends(get_db)):
         async with async_session() as gen_db:
             full_response = ""
             sources = None
+            _session_responses[sid] = {"text": "", "sources": None}
 
             try:
                 async for event in stream_chat_sse(messages, indexed_trees):
+                    event_type = event.get("type")
+
                     # Track stream_id so the stop endpoint can find it
-                    if event.get("type") == "stream_start":
+                    if event_type == "stream_start":
                         stream_id = event["data"]["stream_id"]
                         _session_streams[sid] = stream_id
 
+                    # Accumulate response on EVERY token (so partial is always available)
+                    elif event_type == "token":
+                        full_response += event.get("data", "")
+                        # Update shared dict so stop endpoint can save partial
+                        _session_responses[sid] = {"text": full_response, "sources": sources}
+
+                    elif event_type == "sources":
+                        sources = event.get("data")
+                        _session_responses[sid] = {"text": full_response, "sources": sources}
+
+                    elif event_type == "done":
+                        data = event.get("data", {})
+                        full_response = data.get("full_response", full_response)
+                        sources = data.get("sources", sources)
+
+                    elif event_type == "stopped":
+                        data = event.get("data", {})
+                        full_response = data.get("partial_response", full_response)
+
                     yield f"data: {json.dumps(event)}\n\n"
 
-                    # Capture final data on done / stopped events
-                    if event.get("type") == "done":
-                        data = event.get("data", {})
-                        full_response = data.get("full_response", "")
-                        sources = data.get("sources")
-
-                    elif event.get("type") == "stopped":
-                        data = event.get("data", {})
-                        full_response = data.get("partial_response", "")
-
+            except (asyncio.CancelledError, GeneratorExit):
+                # Client disconnected — this is normal for stop/abort
+                logger.info(f"Stream cancelled for session {sid} (client disconnect)")
             except Exception as e:
                 logger.error(f"SSE stream error for session {sid}: {e}")
                 error_event = {"type": "error", "data": {"message": str(e)}}
                 yield f"data: {json.dumps(error_event)}\n\n"
 
             finally:
-                # Clean up session-to-stream mapping
+                # Clean up mappings
                 _session_streams.pop(sid, None)
+                _session_responses.pop(sid, None)
 
-            # Save assistant message to DB if we got any response
-            if full_response:
-                try:
-                    assistant_msg = Message(
-                        session_id=sid,
-                        role="assistant",
-                        content=full_response,
-                        sources=sources,
-                    )
-                    gen_db.add(assistant_msg)
-                    await gen_db.commit()
-                except Exception as e:
-                    logger.error(f"Failed to save assistant message: {e}")
+                # Save assistant message to DB (works for complete, stopped, OR aborted)
+                if full_response:
+                    try:
+                        assistant_msg = Message(
+                            session_id=sid,
+                            role="assistant",
+                            content=full_response,
+                            sources=sources,
+                        )
+                        gen_db.add(assistant_msg)
+                        await gen_db.commit()
+                        logger.info(f"Saved {'partial' if not sources else 'full'} response for session {sid}")
+                    except Exception as e:
+                        logger.error(f"Failed to save assistant message: {e}")
 
     return StreamingResponse(
         event_generator(),
@@ -226,17 +246,31 @@ async def chat(body: ChatIn, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/stop")
-async def chat_stop(body: ChatStopIn):
-    """Stop an active chat stream by session_id."""
+async def chat_stop(body: ChatStopIn, db: AsyncSession = Depends(get_db)):
+    """Stop an active chat stream and save partial response to DB."""
     stream_id = _session_streams.get(body.session_id)
     if stream_id is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No active stream found for this session",
-        )
+        return {"status": "no_active_stream"}
 
     found = stop_stream(stream_id)
-    return {"status": "stopped" if found else "not_found"}
+
+    # Save the accumulated partial response to DB
+    partial = _session_responses.pop(body.session_id, None)
+    if partial and partial["text"]:
+        try:
+            assistant_msg = Message(
+                session_id=body.session_id,
+                role="assistant",
+                content=partial["text"],
+                sources=partial.get("sources"),
+            )
+            db.add(assistant_msg)
+            await db.commit()
+            logger.info(f"Saved partial response ({len(partial['text'])} chars) for session {body.session_id}")
+        except Exception as e:
+            logger.error(f"Failed to save partial response: {e}")
+
+    return {"status": "stopped" if found else "already_finished"}
 
 
 # ── Starter questions ──

@@ -16,6 +16,7 @@ export interface DocumentDetail extends Document {
 export interface IndexStatus {
   indexed: number;
   pending: number;
+  current_file: string;
   documents: Document[];
 }
 

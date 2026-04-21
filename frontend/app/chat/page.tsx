@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -11,33 +11,25 @@ export default function ChatPage() {
   const router = useRouter();
   const setSessionId = useAppStore((s) => s.setSessionId);
   const [error, setError] = useState<string | null>(null);
+  const creatingRef = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
+    if (creatingRef.current) return;
+    creatingRef.current = true;
 
-    async function createAndRedirect() {
-      try {
-        const session = await api.createSession();
-        if (cancelled) return;
-
+    api
+      .createSession()
+      .then((session) => {
         setSessionId(session.id);
-        localStorage.setItem("onboardbot-session-id", session.id);
+        localStorage.setItem("devguide-session-id", session.id);
         router.replace(`/chat/${session.id}`);
-      } catch (err) {
-        if (cancelled) return;
-        console.error("Failed to create session:", err);
-        setError(
-          err instanceof Error ? err.message : "Failed to create session"
-        );
-      }
-    }
-
-    createAndRedirect();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [router, setSessionId]);
+      })
+      .catch((err) => {
+        creatingRef.current = false;
+        setError(err instanceof Error ? err.message : "Failed to create session");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (error) {
     return (

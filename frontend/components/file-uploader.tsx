@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Upload, X, FileText, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -18,6 +19,10 @@ export function FileUploader() {
       setFiles([]);
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["index-status"] });
+      toast.success("Files uploaded — indexing started");
+    },
+    onError: () => {
+      toast.error("Upload failed");
     },
   });
 
@@ -72,16 +77,16 @@ export function FileUploader() {
         onClick={() => inputRef.current?.click()}
         className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 transition-colors ${
           dragOver
-            ? "border-zinc-400 bg-zinc-800/50"
-            : "border-zinc-700 bg-zinc-900 hover:border-zinc-600"
+            ? "border-zinc-500 dark:border-zinc-400 bg-zinc-100/50 dark:bg-zinc-800/50"
+            : "border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-600"
         }`}
       >
-        <Upload className="h-8 w-8 text-zinc-400" />
+        <Upload className="h-8 w-8 text-zinc-500 dark:text-zinc-400" />
         <div className="text-center">
-          <p className="text-sm font-medium text-zinc-300">
+          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
             Drag & drop Markdown files here
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
             or click to browse (.md, .markdown)
           </p>
         </div>
@@ -103,19 +108,19 @@ export function FileUploader() {
       {/* Selected files list */}
       {files.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+          <p className="text-xs font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
             Selected files ({files.length})
           </p>
           <ul className="space-y-1">
             {files.map((file) => (
               <li
                 key={file.name}
-                className="flex items-center justify-between rounded-md bg-zinc-900 px-3 py-2 text-sm"
+                className="flex items-center justify-between rounded-md bg-zinc-50 dark:bg-zinc-900 px-3 py-2 text-sm"
               >
-                <div className="flex items-center gap-2 text-zinc-300">
-                  <FileText className="h-4 w-4 text-zinc-500" />
+                <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+                  <FileText className="h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                   <span className="truncate">{file.name}</span>
-                  <span className="text-xs text-zinc-600">
+                  <span className="text-xs text-zinc-300 dark:text-zinc-600">
                     {formatSize(file.size)}
                   </span>
                 </div>
@@ -124,7 +129,7 @@ export function FileUploader() {
                   variant="ghost"
                   size="icon"
                   onClick={() => removeFile(file.name)}
-                  className="size-6 rounded text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                  className="size-6 rounded text-zinc-400 dark:text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-600 dark:hover:text-zinc-300"
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>

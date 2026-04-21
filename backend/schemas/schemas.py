@@ -33,6 +33,7 @@ class DocumentDetailOut(DocumentOut):
 class IndexStatusOut(BaseModel):
     indexed: int
     pending: int
+    current_file: str = ""
     documents: list[DocumentOut]
 
 

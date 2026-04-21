@@ -9,9 +9,6 @@ interface AppState {
 
   streamId: string | null;
   setStreamId: (id: string | null) => void;
-
-  sidebarOpen: boolean;
-  toggleSidebar: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -23,7 +20,4 @@ export const useAppStore = create<AppState>((set) => ({
 
   streamId: null,
   setStreamId: (id) => set({ streamId: id }),
-
-  sidebarOpen: true,
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
 }));

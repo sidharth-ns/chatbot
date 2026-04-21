@@ -9,11 +9,12 @@ import {
   ExternalLink,
   Terminal,
   PartyPopper,
-  Bot,
+  Sparkles,
 } from "lucide-react";
 
 import { api } from "@/lib/api";
 import type { HelpContent } from "@/lib/types";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 
@@ -24,9 +25,11 @@ interface ChecklistFlowProps {
 
 function BotAvatar() {
   return (
-    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-600">
-      <Bot className="size-4 text-white" />
-    </div>
+    <Avatar className="size-8">
+      <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white">
+        <Sparkles className="size-4" />
+      </AvatarFallback>
+    </Avatar>
   );
 }
 
@@ -135,20 +138,20 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
   return (
     <div className="flex h-full flex-col">
       {/* Progress header */}
-      <div className="shrink-0 border-b border-zinc-800 px-6 py-4">
+      <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-6 py-4">
         <div className="mx-auto max-w-2xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="size-4 text-blue-500" />
-              <span className="text-sm font-medium text-zinc-200">
+              <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
                 Onboarding Checklist
               </span>
             </div>
-            <span className="text-xs font-medium text-zinc-400">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
               {completedCount} / {total}
             </span>
           </div>
-          <Progress value={progressPct} className="mt-2 [&_[data-slot=progress-track]]:h-1.5 [&_[data-slot=progress-track]]:bg-zinc-800 [&_[data-slot=progress-indicator]]:bg-blue-600 [&_[data-slot=progress-indicator]]:transition-all [&_[data-slot=progress-indicator]]:duration-500" />
+          <Progress value={progressPct} className="mt-2 [&_[data-slot=progress-track]]:h-1.5 [&_[data-slot=progress-track]]:bg-zinc-100 dark:[&_[data-slot=progress-track]]:bg-zinc-800 [&_[data-slot=progress-indicator]]:bg-blue-600 [&_[data-slot=progress-indicator]]:transition-all [&_[data-slot=progress-indicator]]:duration-500" />
           {/* Step indicators */}
           <div className="mt-3 flex gap-1.5">
             {config.questions.map((q) => {
@@ -162,7 +165,7 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
                       ? "bg-blue-600 text-white"
                       : isCurrent
                         ? "border-2 border-blue-500 text-blue-400"
-                        : "bg-zinc-800 text-zinc-600"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-300 dark:text-zinc-600"
                   }`}
                 >
                   {answered ? (
@@ -183,7 +186,7 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
           {/* Welcome message */}
           <div className="flex gap-3">
             <BotAvatar />
-            <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-zinc-800 px-4 py-3 text-sm leading-relaxed text-zinc-200">
+            <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-zinc-100 dark:bg-zinc-800 px-4 py-3 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
               {config.welcome_message}
             </div>
           </div>
@@ -197,7 +200,7 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
                 {/* Bot asks question */}
                 <div className="flex gap-3">
                   <BotAvatar />
-                  <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-zinc-800 px-4 py-3 text-sm leading-relaxed text-zinc-200">
+                  <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-zinc-100 dark:bg-zinc-800 px-4 py-3 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
                     {q.question}
                   </div>
                 </div>
@@ -217,40 +220,52 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
                 {answer === "no" && (help || q.on_no) && (
                   <div className="flex gap-3">
                     <BotAvatar />
-                    <div className="max-w-[80%] space-y-3 rounded-2xl rounded-tl-sm bg-zinc-800 px-4 py-3">
-                      <p className="text-sm leading-relaxed text-zinc-200">
+                    <div className="max-w-[80%] space-y-3 rounded-2xl rounded-tl-sm bg-zinc-100 dark:bg-zinc-800 px-4 py-3">
+                      <p className="text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
                         {help?.message || q.on_no.message}
                       </p>
 
                       {(help?.command || q.on_no.command) && (
-                        <div className="flex items-start gap-2 rounded-lg bg-zinc-900 px-3 py-2.5">
+                        <div className="flex items-start gap-2 rounded-lg bg-zinc-50 dark:bg-zinc-900 px-3 py-2.5">
                           <Terminal className="mt-0.5 size-3.5 shrink-0 text-green-400" />
-                          <code className="text-xs leading-relaxed text-green-300">
+                          <code className="text-xs leading-relaxed text-green-600 dark:text-green-300">
                             {help?.command || q.on_no.command}
                           </code>
                         </div>
                       )}
 
-                      {(help?.link || q.on_no.link) && (
-                        <a
-                          href={help?.link || q.on_no.link || "#"}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs text-blue-400 transition-colors hover:bg-zinc-900/80 hover:text-blue-300"
-                        >
-                          <ExternalLink className="size-3" />
-                          View guide
-                        </a>
-                      )}
+                      {(help?.link || q.on_no.link) && (() => {
+                        const url = help?.link || q.on_no.link || "#";
+                        return (
+                          <Button variant="outline" size="sm" render={<a href={url} target="_blank" rel="noopener noreferrer" />}>
+                            <ExternalLink className="size-3" />
+                            View guide
+                          </Button>
+                        );
+                      })()}
 
                       {help?.doc_content && (
-                        <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-3">
-                          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                        <div className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 p-3">
+                          <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
                             From your docs
                           </p>
-                          <div className="max-h-40 overflow-y-auto text-xs leading-relaxed text-zinc-400">
-                            {help.doc_content.slice(0, 500)}
-                            {help.doc_content.length > 500 && "..."}
+                          <div className="max-h-48 overflow-y-auto space-y-1.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                            {help.doc_content.slice(0, 800).split("\n").map((line, i) => {
+                              const trimmed = line.trim();
+                              if (!trimmed) return null;
+                              // Bold lines (file headers like **filename**)
+                              if (trimmed.startsWith("**") && trimmed.includes("**")) {
+                                const text = trimmed.replace(/\*\*/g, "");
+                                return <p key={i} className="font-semibold text-zinc-800 dark:text-zinc-200 mt-2 first:mt-0">{text}</p>;
+                              }
+                              // Bullet points
+                              if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                                return <p key={i} className="pl-3 before:content-['•'] before:mr-1.5 before:text-blue-400">{trimmed.slice(2)}</p>;
+                              }
+                              // Separator
+                              if (trimmed === "---") return <hr key={i} className="border-zinc-300 dark:border-zinc-700 my-2" />;
+                              return <p key={i}>{trimmed}</p>;
+                            })}
                           </div>
                         </div>
                       )}
@@ -266,7 +281,7 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
             <div className="flex flex-col gap-3">
               <div className="flex gap-3">
                 <BotAvatar />
-                <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-zinc-800 px-4 py-3 text-sm leading-relaxed text-zinc-200">
+                <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-zinc-100 dark:bg-zinc-800 px-4 py-3 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
                   {currentQuestion.question}
                 </div>
               </div>
@@ -286,7 +301,7 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="rounded-full border-zinc-700 px-5 text-zinc-300 hover:bg-zinc-800"
+                  className="rounded-full border-zinc-300 dark:border-zinc-700 px-5 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   onClick={() => handleAnswer(currentQuestion.id, "no")}
                   disabled={answering}
                 >
@@ -306,13 +321,13 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
               <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-green-600">
                 <PartyPopper className="size-4 text-white" />
               </div>
-              <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-gradient-to-br from-green-900/40 to-blue-900/40 px-4 py-3 text-sm leading-relaxed text-zinc-200">
+              <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-gradient-to-br from-green-100/40 dark:from-green-900/40 to-blue-100/40 dark:to-blue-900/40 px-4 py-3 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
                 <p className="font-medium">
                   {state.skipped
                     ? "Checklist skipped — let's jump into the chat!"
                     : config.completion_message}
                 </p>
-                <p className="mt-1 text-xs text-zinc-400">
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                   Redirecting to chat...
                 </p>
               </div>
@@ -325,12 +340,12 @@ export function ChecklistFlow({ sessionId, onComplete }: ChecklistFlowProps) {
 
       {/* Skip button */}
       {!isComplete && (
-        <div className="shrink-0 border-t border-zinc-800 px-6 py-3">
+        <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-800 px-6 py-3">
           <div className="mx-auto flex max-w-2xl justify-end">
             <Button
               variant="ghost"
               size="sm"
-              className="text-zinc-500 hover:text-zinc-300"
+              className="text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
               onClick={handleSkip}
               disabled={answering}
             >

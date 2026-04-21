@@ -10,38 +10,54 @@ import { useAppStore } from "@/lib/store";
 import { ChecklistFlow } from "@/components/checklist-flow";
 import { ChatInterface } from "@/components/chat-interface";
 
+const CHECKLIST_DONE_KEY = "devguide-checklist-done";
+
+function isChecklistDoneGlobally(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(CHECKLIST_DONE_KEY) === "true";
+}
+
+function markChecklistDoneGlobally() {
+  localStorage.setItem(CHECKLIST_DONE_KEY, "true");
+}
+
 export default function ChatSessionPage() {
   const params = useParams<{ sessionId: string }>();
   const sessionId = params.sessionId;
-
   const setSessionId = useAppStore((s) => s.setSessionId);
   const [checklistComplete, setChecklistComplete] = useState(false);
+  const [globallyDone, setGloballyDone] = useState(false);
+
+  // Check localStorage on mount — skip checklist if already done once before
+  useEffect(() => {
+    setGloballyDone(isChecklistDoneGlobally());
+  }, []);
 
   // Store session ID in Zustand and localStorage
   useEffect(() => {
     if (sessionId) {
       setSessionId(sessionId);
-      localStorage.setItem("onboardbot-session-id", sessionId);
+      localStorage.setItem("devguide-session-id", sessionId);
     }
   }, [sessionId, setSessionId]);
 
-  // Fetch checklist state to determine if we should show the checklist
+  // Fetch checklist state for THIS session
   const stateQuery = useQuery({
     queryKey: ["checklist-state", sessionId],
     queryFn: () => api.checklistState(sessionId),
-    enabled: !!sessionId,
+    enabled: !!sessionId && !globallyDone,
   });
 
   const configQuery = useQuery({
     queryKey: ["checklist-config"],
     queryFn: api.checklistConfig,
-    enabled: !!sessionId,
+    enabled: !!sessionId && !globallyDone,
   });
 
   const state = stateQuery.data;
   const config = configQuery.data;
 
-  // Determine if checklist is complete based on API state
+  // Determine if checklist is complete for this session
   const allAnswered =
     config && state
       ? config.questions.every((q) => q.id in state.answers)
@@ -49,8 +65,26 @@ export default function ChatSessionPage() {
 
   const isChecklistDone = allAnswered || state?.skipped === true;
 
-  // Show chat if checklist is completed (from API or from flow callback)
-  const showChat = checklistComplete || isChecklistDone;
+  // If checklist just finished for this session, mark it globally
+  useEffect(() => {
+    if (isChecklistDone && !globallyDone) {
+      markChecklistDoneGlobally();
+      setGloballyDone(true);
+    }
+  }, [isChecklistDone, globallyDone]);
+
+  // If checklist query errors (new session without checklist state), just skip to chat
+  // Don't create a new session — the current one is valid
+  useEffect(() => {
+    if (stateQuery.isError && !globallyDone) {
+      setChecklistComplete(true);
+    }
+  }, [stateQuery.isError, globallyDone]);
+
+  // Skip checklist entirely if already done globally (from a previous session)
+  if (globallyDone || checklistComplete || isChecklistDone) {
+    return <ChatInterface sessionId={sessionId} />;
+  }
 
   if (stateQuery.isLoading || configQuery.isLoading) {
     return (
@@ -68,14 +102,14 @@ export default function ChatSessionPage() {
     return <ChatInterface sessionId={sessionId} />;
   }
 
-  if (showChat) {
-    return <ChatInterface sessionId={sessionId} />;
-  }
-
   return (
     <ChecklistFlow
       sessionId={sessionId}
-      onComplete={() => setChecklistComplete(true)}
+      onComplete={() => {
+        markChecklistDoneGlobally();
+        setGloballyDone(true);
+        setChecklistComplete(true);
+      }}
     />
   );
 }

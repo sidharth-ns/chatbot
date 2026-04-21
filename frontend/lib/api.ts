@@ -1,4 +1,3 @@
-import { createParser } from "eventsource-parser";
 import type {
   ChatSession,
   ChecklistConfig,
@@ -32,92 +31,98 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // Health
-  health: () => fetchAPI<{ status: string }>("/health"),
+  health: () => fetchAPI<{ status: string }>("/api/health"),
 
   // Documents / Indexing
-  uploadFile: async (file: File) => {
+  uploadFiles: async (files: File[]) => {
     const form = new FormData();
-    form.append("file", file);
-    const res = await fetch(`${API_URL}/index/upload`, {
+    for (const file of files) {
+      form.append("files", file);
+    }
+    const res = await fetch(`${API_URL}/api/documents/upload`, {
       method: "POST",
       body: form,
     });
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`API error ${res.status}: ${body}`);
+      throw new Error(`Upload error ${res.status}: ${body}`);
     }
-    return res.json() as Promise<Document>;
+    return res.json();
   },
 
-  indexFolder: (path: string) =>
-    fetchAPI<{ indexed: number; skipped: number; errors: string[] }>(
-      "/index/folder",
-      {
-        method: "POST",
-        body: JSON.stringify({ path }),
-      }
-    ),
+  indexFolder: (folderPath: string) =>
+    fetchAPI("/api/documents/index-folder", {
+      method: "POST",
+      body: JSON.stringify({ folder_path: folderPath }),
+    }),
 
-  indexStatus: () => fetchAPI<IndexStatus>("/index/status"),
+  indexStatus: () => fetchAPI<IndexStatus>("/api/documents/index-status"),
 
-  listDocuments: () => fetchAPI<Document[]>("/documents"),
+  listDocuments: () => fetchAPI<Document[]>("/api/documents"),
 
-  getDocument: (id: string) => fetchAPI<DocumentDetail>(`/documents/${id}`),
+  getDocument: (id: string) => fetchAPI<DocumentDetail>(`/api/documents/${id}`),
 
   deleteDocument: (id: string) =>
-    fetchAPI<{ ok: boolean }>(`/documents/${id}`, { method: "DELETE" }),
+    fetchAPI(`/api/documents/${id}`, { method: "DELETE" }),
 
   reindexAll: () =>
-    fetchAPI<{ indexed: number }>("/index/reindex", { method: "POST" }),
+    fetchAPI("/api/documents/reindex", { method: "POST" }),
 
   // Chat sessions
   createSession: () =>
-    fetchAPI<ChatSession>("/chat/sessions", { method: "POST" }),
+    fetchAPI<ChatSession>("/api/chat/sessions", { method: "POST" }),
 
-  listSessions: () => fetchAPI<ChatSession[]>("/chat/sessions"),
+  listSessions: () => fetchAPI<ChatSession[]>("/api/chat/sessions"),
 
-  getSessionMessages: (id: string) =>
-    fetchAPI<Message[]>(`/chat/sessions/${id}/messages`),
+  getSessionMessages: (sessionId: string) =>
+    fetchAPI<Message[]>(`/api/chat/sessions/${sessionId}`),
 
-  deleteSession: (id: string) =>
-    fetchAPI<{ ok: boolean }>(`/chat/sessions/${id}`, { method: "DELETE" }),
+  deleteSession: (sessionId: string) =>
+    fetchAPI(`/api/chat/sessions/${sessionId}`, { method: "DELETE" }),
 
   stopStream: (sessionId: string) =>
-    fetchAPI<{ ok: boolean }>(`/chat/sessions/${sessionId}/stop`, {
+    fetchAPI("/api/chat/stop", {
       method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
     }),
 
   starterQuestions: () =>
-    fetchAPI<{ questions: string[] }>("/chat/starter-questions"),
+    fetchAPI<{ questions: string[] }>("/api/chat/starter-questions"),
 
   // Checklist
-  checklistConfig: () => fetchAPI<ChecklistConfig>("/checklist/config"),
+  checklistConfig: () => fetchAPI<ChecklistConfig>("/api/checklist/config"),
 
   checklistState: (sessionId: string) =>
-    fetchAPI<ChecklistState>(`/checklist/${sessionId}/state`),
+    fetchAPI<ChecklistState>(`/api/checklist/state/${sessionId}`),
 
   checklistAnswer: (
     sessionId: string,
     questionId: string,
-    answer: string
+    answer: boolean
   ) =>
-    fetchAPI<ChecklistState>(`/checklist/${sessionId}/answer`, {
+    fetchAPI("/api/checklist/answer", {
       method: "POST",
-      body: JSON.stringify({ question_id: questionId, answer }),
+      body: JSON.stringify({
+        session_id: sessionId,
+        question_id: questionId,
+        answer,
+      }),
     }),
 
   checklistSkip: (sessionId: string) =>
-    fetchAPI<ChecklistState>(`/checklist/${sessionId}/skip`, {
+    fetchAPI("/api/checklist/skip", {
       method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
     }),
 
   checklistReset: (sessionId: string) =>
-    fetchAPI<ChecklistState>(`/checklist/${sessionId}/reset`, {
+    fetchAPI("/api/checklist/reset", {
       method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
     }),
 
   checklistHelp: (questionId: string) =>
-    fetchAPI<HelpContent>(`/checklist/help/${questionId}`),
+    fetchAPI<HelpContent>(`/api/checklist/help/${questionId}`),
 };
 
 export async function streamChat(
@@ -126,63 +131,54 @@ export async function streamChat(
   onEvent: (event: SSEEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const res = await fetch(`${API_URL}/chat/sessions/${sessionId}/message`, {
+  const res = await fetch(`${API_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ session_id: sessionId, message }),
     signal,
   });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API error ${res.status}: ${body}`);
+    throw new Error(`Chat error ${res.status}: ${body}`);
   }
-
-  const parser = createParser({
-    onEvent: (event) => {
-      try {
-        const eventType = event.event || "unknown";
-        const data = event.data ? JSON.parse(event.data) : undefined;
-
-        switch (eventType) {
-          case "stream_start":
-            onEvent({ type: "stream_start", data });
-            break;
-          case "search_start":
-            onEvent({ type: "search_start" });
-            break;
-          case "sources":
-            onEvent({ type: "sources", data });
-            break;
-          case "token":
-            onEvent({ type: "token", data });
-            break;
-          case "done":
-            onEvent({ type: "done", data });
-            break;
-          case "stopped":
-            onEvent({ type: "stopped", data });
-            break;
-          case "error":
-            onEvent({ type: "error", data });
-            break;
-        }
-      } catch {
-        // Ignore malformed events
-      }
-    },
-  });
 
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
 
   const decoder = new TextDecoder();
+  let buffer = "";
+
+  // Helper: yield control to browser so React can re-render between tokens
+  const yieldToUI = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      parser.feed(decoder.decode(value, { stream: true }));
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete SSE lines (each event ends with \n\n)
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() || ""; // Keep incomplete part in buffer
+
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6); // Remove "data: " prefix
+        try {
+          const parsed = JSON.parse(jsonStr);
+          onEvent(parsed as SSEEvent);
+
+          // After each token, yield to browser so React renders the update
+          if (parsed.type === "token") {
+            await yieldToUI();
+          }
+        } catch {
+          // Ignore malformed JSON
+        }
+      }
     }
   } finally {
     reader.releaseLock();

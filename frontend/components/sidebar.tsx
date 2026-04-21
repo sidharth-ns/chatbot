@@ -6,17 +6,24 @@ import { useRouter, useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText,
-  MessageSquare,
+  MessageCircle,
   Plus,
   Upload,
-  Bot,
   Trash2,
-  ChevronDown,
+  Copy,
+  Check,
+  Sparkles,
+  Search,
+  X,
 } from "lucide-react";
 
+import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useAppStore } from "@/lib/store";
-import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { DocPreviewSheet } from "@/components/doc-preview-sheet";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,14 +34,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Collapsible,
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
+import {
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupAction,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarSeparator,
+  useSidebar,
+} from "@/components/ui/sidebar";
 
 function relativeTime(dateStr: string): string {
   const now = Date.now();
@@ -57,13 +78,18 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen) + "...";
 }
 
-export function Sidebar() {
+export function AppSidebar() {
   const router = useRouter();
   const params = useParams();
   const queryClient = useQueryClient();
-  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const activeSessionId = params?.sessionId as string | undefined;
+  const { toggleSidebar } = useSidebar();
+  const isMobile = useIsMobile();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+  const [previewFilename, setPreviewFilename] = useState("");
 
   const { data: documents } = useQuery({
     queryKey: ["documents"],
@@ -81,7 +107,7 @@ export function Sidebar() {
     mutationFn: (sessionId: string) => api.deleteSession(sessionId),
     onSuccess: (_data, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      // If we deleted the active session, navigate to home
+      toast.success("Chat deleted");
       if (activeSessionId === deletedId) {
         router.push("/");
       }
@@ -94,6 +120,20 @@ export function Sidebar() {
       router.push(`/chat/${session.id}`);
     } catch (err) {
       console.error("Failed to create session:", err);
+    }
+  }
+
+  // Filter sessions by search query
+  const filteredSessions = sessions?.filter((session) =>
+    (session.title || "Untitled")
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
+  );
+
+  // Auto-close sidebar on mobile after navigation
+  function closeSidebarOnMobile() {
+    if (isMobile) {
+      toggleSidebar();
     }
   }
 
@@ -110,154 +150,261 @@ export function Sidebar() {
     }
   }
 
-  if (!sidebarOpen) return null;
-
   return (
-    <aside className="flex h-screen w-[280px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-900">
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Logo / Title */}
-      <div className="flex items-center gap-2.5 px-4 py-5">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-blue-600/15">
-          <Bot className="size-5 text-blue-400" />
-        </div>
-        <span className="text-lg font-semibold text-zinc-100">OnboardBot</span>
-      </div>
-
-      <Separator className="bg-zinc-800" />
-
-      {/* Navigation */}
-      <div className="flex flex-col gap-1 px-3 py-3">
-        <Link href="/upload">
-          <Button variant="ghost" className="w-full justify-start gap-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50">
-            <Upload className="size-4" />
-            Upload Docs
-          </Button>
-        </Link>
-        <Button
-          variant="ghost"
-          className="w-full justify-start gap-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50"
-          onClick={handleNewChat}
-        >
-          <Plus className="size-4" />
-          New Chat
-        </Button>
-      </div>
-
-      <Separator className="bg-zinc-800" />
-
-      {/* Documents Section */}
-      <Collapsible defaultOpen className="flex flex-col px-3 pt-2 pb-1">
-        <CollapsibleTrigger
-          className="flex items-center justify-between rounded-md px-1 py-1 transition-colors hover:bg-zinc-800/30"
-        >
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
-            Documents
+      <SidebarHeader>
+        <div className="flex items-center gap-2.5 px-2 py-2">
+          <Avatar className="size-8">
+            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white">
+              <Sparkles className="size-4" />
+            </AvatarFallback>
+          </Avatar>
+          <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            DevGuide
           </span>
-          <ChevronDown className="size-3 text-zinc-600 transition-transform data-[panel-open]:rotate-0 data-[panel-closed]:rotate-[-90deg]" />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <ScrollArea className="mt-1 max-h-[200px] overflow-auto">
-            {documents && documents.length > 0 ? (
-              <div className="flex flex-col gap-0.5">
-                {documents.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-300"
-                  >
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <FileText className="size-3.5 shrink-0 text-zinc-600" />
-                      <span className="truncate text-xs">{doc.filename}</span>
-                    </div>
-                    <Badge variant="secondary" className="ml-2 shrink-0 bg-zinc-800 text-[10px] text-zinc-500">
-                      {doc.node_count}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="px-2 py-2 text-xs text-zinc-600">No documents indexed</p>
-            )}
-          </ScrollArea>
-        </CollapsibleContent>
-      </Collapsible>
-
-      <Separator className="bg-zinc-800" />
-
-      {/* Sessions Section */}
-      <Collapsible defaultOpen className="flex min-h-0 flex-1 flex-col px-3 pt-2 pb-3">
-        <div className="flex items-center justify-between px-1">
-          <CollapsibleTrigger
-            className="flex items-center gap-1 rounded-md py-1 transition-colors hover:bg-zinc-800/30"
-          >
-            <ChevronDown className="size-3 text-zinc-600 transition-transform data-[panel-open]:rotate-0 data-[panel-closed]:rotate-[-90deg]" />
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
-              Chat Sessions
-            </span>
-          </CollapsibleTrigger>
-          <button
-            type="button"
-            onClick={handleNewChat}
-            className="rounded-md p-1 text-zinc-600 transition-colors hover:bg-zinc-800/50 hover:text-zinc-300"
-            title="New Chat"
-          >
-            <Plus className="size-3.5" />
-          </button>
         </div>
-        <CollapsibleContent>
-          <ScrollArea className="mt-1 flex-1 overflow-auto">
-            {sessions && sessions.length > 0 ? (
-              <div className="flex flex-col gap-0.5">
-                {sessions.map((session) => {
-                  const isActive = activeSessionId === session.id;
-                  return (
-                    <Link
-                      key={session.id}
-                      href={`/chat/${session.id}`}
-                      className={`group flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors ${
-                        isActive
-                          ? "border-l-2 border-blue-500 bg-zinc-800 text-zinc-100"
-                          : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-300"
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <MessageSquare className={`size-3.5 shrink-0 ${isActive ? "text-blue-400" : "text-zinc-600"}`} />
-                        <span className="truncate text-xs">
-                          {truncate(session.title || "Untitled", 24)}
-                        </span>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <span className="text-[10px] text-zinc-600 group-hover:hidden">
-                          {relativeTime(session.updated_at)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeleteClick(e, session.id)}
-                          className="hidden rounded p-0.5 text-zinc-600 transition-colors hover:bg-zinc-700 hover:text-red-400 group-hover:block"
-                          title="Delete chat"
+      </SidebarHeader>
+
+      <SidebarSeparator />
+
+      <SidebarContent>
+        {/* Navigation group */}
+        <SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                render={<Link href="/upload" />}
+                tooltip="Upload Docs"
+                onClick={closeSidebarOnMobile}
+              >
+                <Upload className="size-4" />
+                <span>Upload Docs</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => {
+                  handleNewChat();
+                  closeSidebarOnMobile();
+                }}
+                tooltip="New Chat"
+              >
+                <Plus className="size-4" />
+                <span>New Chat</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        {/* Chats group */}
+        <Collapsible defaultOpen className="group/collapsible">
+          <SidebarGroup className="flex-1">
+            <SidebarGroupLabel render={<CollapsibleTrigger />} className="cursor-pointer">
+              <MessageCircle className="size-4" />
+              Chats
+            </SidebarGroupLabel>
+            <SidebarGroupAction title="New Chat" onClick={handleNewChat}>
+              <Plus className="size-4" />
+            </SidebarGroupAction>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                {/* Search input for chats */}
+                {sessions && sessions.length > 1 && (
+                  <div className="relative px-2 pb-1.5">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 dark:text-zinc-500 pointer-events-none" />
+                    <Input
+                      type="text"
+                      placeholder="Search chats..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="h-7 pl-7 pr-7 text-xs bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+                {!sessions && (
+                  <div className="space-y-1 px-2">
+                    {[1, 2].map((i) => <Skeleton key={i} className="h-7 w-full rounded" />)}
+                  </div>
+                )}
+                <SidebarMenu>
+                  {filteredSessions && filteredSessions.length > 0 ? (
+                    filteredSessions.map((session) => {
+                      const isActive = activeSessionId === session.id;
+                      return (
+                        <SidebarMenuItem key={session.id}>
+                          <SidebarMenuButton
+                            render={<Link href={`/chat/${session.id}`} />}
+                            isActive={isActive}
+                            tooltip={`${session.title || "Untitled"} · ${relativeTime(session.updated_at)}`}
+                            onClick={closeSidebarOnMobile}
+                          >
+                            <MessageCircle
+                              className={`size-4 shrink-0 ${
+                                isActive
+                                  ? "text-blue-400"
+                                  : "text-zinc-600 dark:text-zinc-400"
+                              }`}
+                            />
+                            <span className="truncate">
+                              {truncate(session.title || "Untitled", 24)}
+                            </span>
+                          </SidebarMenuButton>
+                          {/* Action buttons — show on hover */}
+                          <div className="absolute right-1 top-1 hidden items-center gap-0.5 group-hover/menu-item:flex">
+                            <button
+                              type="button"
+                              title="Copy link"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const url = `${window.location.origin}/chat/${session.id}`;
+                                try {
+                                  navigator.clipboard.writeText(url);
+                                } catch {
+                                  // Fallback for non-HTTPS
+                                  const textarea = document.createElement("textarea");
+                                  textarea.value = url;
+                                  document.body.appendChild(textarea);
+                                  textarea.select();
+                                  document.execCommand("copy");
+                                  document.body.removeChild(textarea);
+                                }
+                                setCopiedId(session.id);
+                                toast.success("Link copied to clipboard");
+                                setTimeout(() => setCopiedId(null), 1500);
+                              }}
+                              className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-200 dark:hover:bg-zinc-700 hover:text-zinc-900 dark:hover:text-zinc-100"
+                            >
+                              {copiedId === session.id ? (
+                                <Check className="size-3 text-green-500" />
+                              ) : (
+                                <Copy className="size-3" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete chat"
+                              onClick={(e) => handleDeleteClick(e, session.id)}
+                              className="rounded p-1 text-zinc-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </div>
+                        </SidebarMenuItem>
+                      );
+                    })
+                  ) : filteredSessions && searchQuery ? (
+                    <p className="px-2 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                      No matching chats
+                    </p>
+                  ) : sessions ? (
+                    <p className="px-2 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                      No sessions yet
+                    </p>
+                  ) : null}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
+        <SidebarSeparator />
+
+        {/* Documents group */}
+        <Collapsible defaultOpen className="group/collapsible">
+          <SidebarGroup>
+            <SidebarGroupLabel render={<CollapsibleTrigger />} className="cursor-pointer">
+              <FileText className="size-4" />
+              Documents
+            </SidebarGroupLabel>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                {!documents && (
+                  <div className="space-y-1 px-2">
+                    {[1, 2, 3].map((i) => <Skeleton key={i} className="h-6 w-full rounded" />)}
+                  </div>
+                )}
+                <SidebarMenu>
+                  {documents && documents.length > 0 ? (
+                    documents.map((doc) => (
+                      <SidebarMenuItem key={doc.id}>
+                        <SidebarMenuButton
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setPreviewDocId(doc.id);
+                            setPreviewFilename(doc.filename);
+                          }}
                         >
-                          <Trash2 className="size-3" />
-                        </button>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="px-2 py-2 text-xs text-zinc-600">No sessions yet</p>
-            )}
-          </ScrollArea>
-        </CollapsibleContent>
-      </Collapsible>
+                          <FileText className="size-4 shrink-0 text-zinc-600 dark:text-zinc-400" />
+                          <span className="truncate">{doc.filename}</span>
+                        </SidebarMenuButton>
+                        <SidebarMenuAction className="pointer-events-none">
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] text-zinc-600 dark:text-zinc-400"
+                          >
+                            {doc.node_count}
+                          </Badge>
+                        </SidebarMenuAction>
+                      </SidebarMenuItem>
+                    ))
+                  ) : documents ? (
+                    <p className="px-2 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                      No documents indexed
+                    </p>
+                  ) : null}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+      </SidebarContent>
+
+      {/* Footer with theme toggle */}
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <ThemeToggle />
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+
+      {/* Document Preview Sheet */}
+      <DocPreviewSheet
+        docId={previewDocId}
+        filename={previewFilename}
+        onClose={() => setPreviewDocId(null)}
+      />
+
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!confirmDeleteId} onOpenChange={(open) => !open && setConfirmDeleteId(null)}>
-        <AlertDialogContent className="border-zinc-800 bg-zinc-900">
+      <AlertDialog
+        open={!!confirmDeleteId}
+        onOpenChange={(open) => !open && setConfirmDeleteId(null)}
+      >
+        <AlertDialogContent className="border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-zinc-100">Delete chat session?</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400">
-              This will permanently delete this chat and all its messages. This action cannot be undone.
+            <AlertDialogTitle className="text-zinc-900 dark:text-zinc-100">
+              Delete chat session?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-500 dark:text-zinc-400">
+              This will permanently delete this chat and all its messages. This
+              action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100">
+            <AlertDialogCancel className="border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 hover:text-zinc-900 dark:hover:text-zinc-100">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
@@ -269,6 +416,6 @@ export function Sidebar() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </aside>
+    </div>
   );
 }

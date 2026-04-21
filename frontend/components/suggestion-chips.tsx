@@ -27,7 +27,7 @@ export function SuggestionChips({
           variant="outline"
           onClick={() => onSelect(question)}
           disabled={disabled}
-          className="group h-auto rounded-xl border-zinc-800 bg-zinc-900/50 px-3.5 py-2 text-[13px] leading-snug text-zinc-400 transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-200 hover:shadow-sm active:scale-[0.98]"
+          className="group h-auto rounded-xl border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 px-3.5 py-2 text-[13px] leading-snug text-zinc-500 dark:text-zinc-400 transition-all duration-200 hover:border-zinc-400 dark:hover:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-800 dark:hover:text-zinc-200 hover:shadow-sm active:scale-[0.98]"
         >
           <span>{question}</span>
           <ArrowUpRight className="size-3 shrink-0 opacity-0 transition-opacity duration-200 group-hover:opacity-60" />

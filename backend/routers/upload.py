@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,33 +43,39 @@ def _file_hash_from_tree(tree: dict) -> str:
 
 
 @router.post("/upload", response_model=IndexStatusOut)
-async def upload_file(
-    file: UploadFile,
+async def upload_files(
+    files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Accept a multipart .md file upload, validate, and start background indexing."""
-    # Validate file extension
-    if not file.filename or not file.filename.endswith(".md"):
-        raise HTTPException(status_code=400, detail="Only .md files are accepted.")
-
-    # Read content and validate size
-    content = await file.read()
-    max_bytes = settings.max_upload_size_mb * 1024 * 1024
-    if len(content) > max_bytes:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File exceeds maximum size of {settings.max_upload_size_mb} MB.",
-        )
-
-    # Save to a temp directory
+    """Accept multiple multipart .md file uploads, validate, and start background indexing."""
     tmp_dir = tempfile.mkdtemp(prefix="onboardbot_upload_")
     _temp_dirs.append(tmp_dir)
-    filepath = os.path.join(tmp_dir, file.filename)
-    with open(filepath, "wb") as f:
-        f.write(content)
+    filepaths = []
 
-    # Start background indexing
-    start_bg_indexing([filepath])
+    for file in files:
+        # Validate file extension
+        if not file.filename or not file.filename.endswith((".md", ".markdown")):
+            continue
+
+        # Read content and validate size
+        content = await file.read()
+        max_bytes = settings.max_upload_size_mb * 1024 * 1024
+        if len(content) > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{file.filename} exceeds maximum size of {settings.max_upload_size_mb} MB.",
+            )
+
+        filepath = os.path.join(tmp_dir, file.filename)
+        with open(filepath, "wb") as f:
+            f.write(content)
+        filepaths.append(filepath)
+
+    if not filepaths:
+        raise HTTPException(status_code=400, detail="No valid .md files uploaded.")
+
+    # Start background indexing for ALL files in one batch
+    start_bg_indexing(filepaths)
 
     # Return current status
     status = get_bg_status()
@@ -178,8 +184,9 @@ async def index_status(db: AsyncSession = Depends(get_db)):
     docs = await _fetch_all_documents(db)
 
     return IndexStatusOut(
-        indexed=len(docs),
+        indexed=status["progress"],
         pending=max(0, status["total"] - status["progress"]),
+        current_file=status.get("current_file", ""),
         documents=docs,
     )
 
